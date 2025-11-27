@@ -1,4 +1,3 @@
-// js/datos.js
 export const datos = {
   session: { currentUser: null },
 
@@ -56,4 +55,6 @@ export const datos = {
       fecha: "2025-11-10",
     },
   ],
+  
+  seleccionados: [],
 };
