@@ -1,8 +1,4 @@
-//GRAPHQL: Un lenguaje de consultas para APIs.
-//En vez de múltiples endpoints REST, tienes un solo endpoint y preguntas exactamente lo que necesitas.
-
 // backend/schema.js
-// Esquema GraphQL
 import {
   GraphQLSchema,
   GraphQLObjectType,
@@ -12,10 +8,19 @@ import {
   GraphQLNonNull,
 } from "graphql";
 
-import { datos } from "./datos.js";
+import { hashPassword, comparePassword, generateToken } from "./auth.js";
 
 /* ========= Tipos ========= */
 
+/**
+ * Tipo GraphQL para Usuario
+ * @typedef {Object} Usuario
+ * @property {string} nombre
+ * @property {string} email
+ * @property {string} password
+ * @property {string} rol
+ * @property {string} token - JWT generado al hacer login
+ */
 const UsuarioType = new GraphQLObjectType({
   name: "Usuario",
   fields: {
@@ -23,9 +28,22 @@ const UsuarioType = new GraphQLObjectType({
     email: { type: GraphQLString },
     password: { type: GraphQLString },
     rol: { type: GraphQLString },
+    token: { type: GraphQLString },
   },
 });
 
+/**
+ * Tipo GraphQL para Voluntariado
+ * @typedef {Object} Voluntariado
+ * @property {number} id
+ * @property {string} type
+ * @property {string} titulo
+ * @property {string} autor
+ * @property {string} modalidad
+ * @property {string} categoria
+ * @property {string} resumen
+ * @property {string} fecha
+ */
 const VoluntariadoType = new GraphQLObjectType({
   name: "Voluntariado",
   fields: {
@@ -45,54 +63,87 @@ const VoluntariadoType = new GraphQLObjectType({
 const RootQuery = new GraphQLObjectType({
   name: "Query",
   fields: {
-    usuarios: { // Lista de usuarios
+    /**
+     * Obtiene todos los usuarios
+     * @returns {Promise<Array<Usuario>>}
+     */
+    usuarios: {
       type: new GraphQLList(UsuarioType),
-      resolve: () => datos.usuarios,
+      async resolve(_, __, { db }) {
+        return db.collection("usuarios").find().toArray();
+      },
     },
 
-    categorias: { // Categorías de voluntariados
-      type: new GraphQLList(GraphQLString),
-      resolve: () => datos.categorias,
-    },
-
-    seleccion: { // Voluntariados seleccionados
-      type: new GraphQLList(GraphQLString),
-      resolve: () => datos.seleccion,
-    },
-
-    voluntariados: { // Todos los voluntariados
+    /**
+     * Obtiene todos los voluntariados
+     * @returns {Promise<Array<Voluntariado>>}
+     */
+    voluntariados: {
       type: new GraphQLList(VoluntariadoType),
-      resolve: () => datos.voluntariados,
+      async resolve(_, __, { db }) {
+        return db.collection("voluntariados").find().toArray();
+      },
     },
 
-    voluntariado: { // Consulta por ID
+    /**
+     * Obtiene un voluntariado por su ID
+     * @param {Object} args - {id}
+     * @param {number} args.id
+     * @returns {Promise<Voluntariado>}
+     */
+    voluntariado: {
       type: VoluntariadoType,
       args: { id: { type: GraphQLInt } },
-      resolve: (_, { id }) => datos.voluntariados.find(v => v.id === id),
+      async resolve(_, { id }, { db }) {
+        return db.collection("voluntariados").findOne({ id });
+      },
     },
 
-    voluntariadosPorTipo: { // Nuevo filtro por tipo
+    /**
+     * Filtra voluntariados por tipo
+     * @param {Object} args - {type}
+     * @param {string} args.type
+     * @returns {Promise<Array<Voluntariado>>}
+     */
+    voluntariadosPorTipo: {
       type: new GraphQLList(VoluntariadoType),
       args: { type: { type: GraphQLString } },
-      resolve: (_, { type }) =>
-        datos.voluntariados.filter(v => v.type === type),
+      async resolve(_, { type }, { db }) {
+        return db.collection("voluntariados").find({ type }).toArray();
+      },
     },
 
-    voluntariadosPorCategoria: { // Nuevo filtro por categoría
+    /**
+     * Filtra voluntariados por categoría
+     * @param {Object} args - {categoria}
+     * @param {string} args.categoria
+     * @returns {Promise<Array<Voluntariado>>}
+     */
+    voluntariadosPorCategoria: {
       type: new GraphQLList(VoluntariadoType),
       args: { categoria: { type: GraphQLString } },
-      resolve: (_, { categoria }) =>
-        datos.voluntariados.filter(v => v.categoria === categoria),
+      async resolve(_, { categoria }, { db }) {
+        return db.collection("voluntariados").find({ categoria }).toArray();
+      },
     },
   },
 });
 
 /* ========= Mutaciones ========= */
-// Crear, modificar, eliminar datos
+
 const Mutation = new GraphQLObjectType({
   name: "Mutation",
   fields: {
-    //Crear nuevo usuario
+    /**
+     * Crea un nuevo usuario con password hasheada
+     * @param {Object} usuarioNuevo
+     * @param {string} usuarioNuevo.nombre
+     * @param {string} usuarioNuevo.email
+     * @param {string} usuarioNuevo.password
+     * @param {string} usuarioNuevo.rol
+     * @param {Object} context - {db}
+     * @returns {Promise<Usuario>}
+     */
     altaUsuario: {
       type: UsuarioType,
       args: {
@@ -101,31 +152,45 @@ const Mutation = new GraphQLObjectType({
         password: { type: GraphQLString },
         rol: { type: GraphQLString },
       },
-      resolve: (_, usuarioNuevo) => {
-        datos.usuarios.push(usuarioNuevo);
+      async resolve(_, usuarioNuevo, { db }) {
+        if (usuarioNuevo.password) {
+          usuarioNuevo.password = await hashPassword(usuarioNuevo.password);
+        }
+        await db.collection("usuarios").insertOne(usuarioNuevo);
         return usuarioNuevo;
       },
     },
-    // Crear nuevo voluntariado
-    altaVoluntariado: {
-      type: VoluntariadoType,
+
+    /**
+     * Login de usuario y devuelve token JWT
+     * @param {Object} args - {email, password}
+     * @param {Object} context - {db}
+     * @returns {Promise<Usuario>} Usuario con token
+     * @throws {Error} Contraseña incorrecta o usuario no encontrado
+     */
+    login: {
+      type: UsuarioType,
       args: {
-        titulo: { type: GraphQLString },
-        autor: { type: GraphQLString },
-        type: { type: GraphQLString },
-        modalidad: { type: GraphQLString },
-        categoria: { type: GraphQLString },
-        resumen: { type: GraphQLString },
-        fecha: { type: GraphQLString },
+        email: { type: new GraphQLNonNull(GraphQLString) },
+        password: { type: new GraphQLNonNull(GraphQLString) },
       },
-      resolve: (_, nuevo) => {
-        const id = Math.max(...datos.voluntariados.map(v => v.id)) + 1;
-        const voluntariado = { id, ...nuevo };
-        datos.voluntariados.push(voluntariado);
-        return voluntariado;
+      async resolve(_, { email, password }, { db }) {
+        const usuario = await db.collection("usuarios").findOne({ email });
+        if (!usuario) throw new Error("Usuario no encontrado");
+        const valid = await comparePassword(password, usuario.password);
+        if (!valid) throw new Error("Contraseña incorrecta");
+
+        const token = generateToken(usuario);
+        return { ...usuario, token };
       },
     },
-    // Modificar usuario existente
+
+    /**
+     * Modifica un usuario existente
+     * @param {Object} args - {emailOriginal, nombre?, email?, password?, rol?}
+     * @param {Object} context - {db}
+     * @returns {Promise<Usuario>}
+     */
     modificarUsuario: {
       type: UsuarioType,
       args: {
@@ -135,21 +200,69 @@ const Mutation = new GraphQLObjectType({
         password: { type: GraphQLString },
         rol: { type: GraphQLString },
       },
-      resolve: (_, { emailOriginal, nombre, email, password, rol }) => {
-        const usuarioActualizado = { nombre, email, password, rol };
-        const indice = datos.usuarios.findIndex(u => u.email === emailOriginal);
-        if (indice === -1) return null; // No existe
-        
-        // Solo actualiza las propiedades definidas
-        Object.keys(usuarioActualizado).forEach(key => {
-             if (usuarioActualizado[key] !== undefined) {
-        datos.usuarios[indice][key] = usuarioActualizado[key];
-      }
-    });
-        return datos.usuarios[indice];
+      async resolve(_, { emailOriginal, ...campos }, { db }) {
+        const result = await db.collection("usuarios").findOneAndUpdate(
+          { email: emailOriginal },
+          { $set: campos },
+          { returnDocument: "after" }
+        );
+        return result.value;
       },
     },
-    // Modificar voluntariado existente
+
+    /**
+     * Elimina un usuario por email
+     * @param {Object} args - {email}
+     * @param {Object} context - {db}
+     * @returns {Promise<string>} Mensaje de éxito o error
+     */
+    borrarUsuario: {
+      type: GraphQLString,
+      args: { email: { type: new GraphQLNonNull(GraphQLString) } },
+      async resolve(_, { email }, { db }) {
+        const result = await db.collection("usuarios").deleteOne({ email });
+        return result.deletedCount ? "Usuario eliminado" : "Usuario no encontrado";
+      },
+    },
+
+    /**
+     * Crea un voluntariado
+     * @param {Object} voluntariadoNuevo
+     * @param {Object} context - {db}
+     * @returns {Promise<Voluntariado>}
+     */
+    altaVoluntariado: {
+      type: VoluntariadoType,
+      args: {
+        id: { type: GraphQLInt },
+        titulo: { type: GraphQLString },
+        autor: { type: GraphQLString },
+        type: { type: GraphQLString },
+        modalidad: { type: GraphQLString },
+        categoria: { type: GraphQLString },
+        resumen: { type: GraphQLString },
+        fecha: { type: GraphQLString },
+      },
+      async resolve(_, voluntariadoNuevo, { db }) {
+        if (!voluntariadoNuevo.id) {
+          const last = await db.collection("voluntariados")
+            .find()
+            .sort({ id: -1 })
+            .limit(1)
+            .toArray();
+          voluntariadoNuevo.id = last.length ? last[0].id + 1 : 1;
+        }
+        await db.collection("voluntariados").insertOne(voluntariadoNuevo);
+        return voluntariadoNuevo;
+      },
+    },
+
+    /**
+     * Modifica un voluntariado existente
+     * @param {Object} args - {id, ...campos}
+     * @param {Object} context - {db}
+     * @returns {Promise<Voluntariado>}
+     */
     modificarVoluntariado: {
       type: VoluntariadoType,
       args: {
@@ -162,37 +275,28 @@ const Mutation = new GraphQLObjectType({
         resumen: { type: GraphQLString },
         fecha: { type: GraphQLString },
       },
-      resolve: (_, { id, ...datosNuevos }) => {
-        const indice = datos.voluntariados.findIndex(v => v.id === id);
-        if (indice === -1) return null;
-        datos.voluntariados[indice] = { ...datos.voluntariados[indice], ...datosNuevos };
-        return datos.voluntariados[indice];
+      async resolve(_, { id, ...campos }, { db }) {
+        const result = await db.collection("voluntariados").findOneAndUpdate(
+          { id },
+          { $set: campos },
+          { returnDocument: "after" }
+        );
+        return result.value;
       },
     },
-    // Eliminar usuario
-    borrarUsuario: {
-      type: GraphQLString, // Devuelve mensaje simple
-      args: {
-        email: { type: new GraphQLNonNull(GraphQLString) },
-      },
-      resolve: (_, { email }) => {
-        const indice = datos.usuarios.findIndex(u => u.email === email);
-        if (indice === -1) return "Usuario no encontrado";
-        datos.usuarios.splice(indice, 1);
-        return "Usuario eliminado";
-      },
-    },
-    // Eliminar voluntariado
+
+    /**
+     * Elimina un voluntariado por id
+     * @param {Object} args - {id}
+     * @param {Object} context - {db}
+     * @returns {Promise<string>} Mensaje de éxito o error
+     */
     borrarVoluntariado: {
       type: GraphQLString,
-      args: {
-        id: { type: new GraphQLNonNull(GraphQLInt) },
-      },
-      resolve: (_, { id }) => {
-        const indice = datos.voluntariados.findIndex(v => v.id === id);
-        if (indice === -1) return "Voluntariado no encontrado";
-        datos.voluntariados.splice(indice, 1);
-        return "Voluntariado eliminado";
+      args: { id: { type: new GraphQLNonNull(GraphQLInt) } },
+      async resolve(_, { id }, { db }) {
+        const result = await db.collection("voluntariados").deleteOne({ id });
+        return result.deletedCount ? "Voluntariado eliminado" : "Voluntariado no encontrado";
       },
     },
   },
