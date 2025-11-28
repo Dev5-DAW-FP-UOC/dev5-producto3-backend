@@ -1,6 +1,7 @@
 // index.js
 import app from "./app.js";
 import { connectMongo } from "./database/mongoClient.js";
+import { initDatosEnMongo } from "./core/initMongo.js";
 
 const PORT = process.env.PORT || 4000;
 
@@ -9,7 +10,10 @@ async function startServer() {
     // 1. Conectar a MongoDB
     await connectMongo();
 
-    // 2. Arrancar servidor Express
+    // 2. Inicializar datos si las colecciones están vacías
+    await initDatosEnMongo();
+
+    // 3. Arrancar servidor Express
     app.listen(PORT, () => {
       console.log(`Servidor escuchando en http://localhost:${PORT}`);
     });

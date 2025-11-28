@@ -1,24 +1,43 @@
 // controllers/seleccionadoController.js
 import {
-  guardarSeleccionados,
   listarSeleccionados,
+  guardarSeleccionados,
   borrarSeleccionados,
 } from "../core/almacenaje.js";
 
-export const getSeleccionados = (req, res) => {
-  res.json(listarSeleccionados());
-};
-
-export const postSeleccionado = (req, res) => {
-  const nuevo = guardarSeleccionados(req.body);
-  res.status(201).json(nuevo);
-};
-
-export const deleteSeleccionado = (req, res) => {
-  const { id } = req.params; // aquí será el seleccionadoId
-  const ok = borrarSeleccionados(id);
-  if (!ok) {
-    return res.status(404).json({ error: "Seleccionado no encontrado" });
+export const getSeleccionados = async (req, res) => {
+  try {
+    const seleccionados = await listarSeleccionados();
+    res.json(seleccionados);
+  } catch (err) {
+    console.error("Error al listar seleccionados:", err);
+    res.status(500).json({ error: "Error al listar seleccionados" });
   }
-  res.json({ eliminado: true });
+};
+
+export const postSeleccionado = async (req, res) => {
+  try {
+    const voluntariado = req.body; // el voluntariado que se selecciona
+    const creado = await guardarSeleccionados(voluntariado);
+    res.status(201).json(creado);
+  } catch (err) {
+    console.error("Error al guardar seleccionado:", err);
+    res.status(500).json({ error: "Error al guardar seleccionado" });
+  }
+};
+
+export const deleteSeleccionado = async (req, res) => {
+  try {
+    const { id } = req.params; // seleccionadoId (ObjectId como string)
+    const ok = await borrarSeleccionados(id);
+
+    if (!ok) {
+      return res.status(404).json({ error: "Seleccionado no encontrado" });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error al borrar seleccionado:", err);
+    res.status(500).json({ error: "Error al borrar seleccionado" });
+  }
 };

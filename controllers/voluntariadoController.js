@@ -1,42 +1,62 @@
 // controllers/voluntariadoController.js
 import {
-  altaVoluntariado,
   listarVoluntariados,
+  altaVoluntariado,
   modificarVoluntariado,
   borrarVoluntariado,
-  // voluntariadosPorUsuario,
 } from "../core/almacenaje.js";
 
-export const getVoluntariados = (req, res) => {
-  const lista = listarVoluntariados();
-  res.json(lista);
-
-};
-
-// export const getVoluntariadosPorUsuario = (req, res) => {
-//   const { email } = req.params;
-//   res.json(voluntariadosPorUsuario(email));
-// };
-
-export const postVoluntariado = (req, res) => {
-  const nuevo = altaVoluntariado(req.body);
-  res.status(201).json(nuevo);
-};
-
-export const putVoluntariado = (req, res) => {
-  const { id } = req.params;
-  const actualizado = modificarVoluntariado(id, req.body);
-  if (!actualizado) {
-    return res.status(404).json({ error: "Voluntariado no encontrado" });
+export const getVoluntariados = async (req, res) => {
+  try {
+    const voluntariados = await listarVoluntariados();
+    res.json(voluntariados);
+  } catch (err) {
+    console.error("Error al listar voluntariados:", err);
+    res.status(500).json({ error: "Error al listar voluntariados" });
   }
-  res.json(actualizado);
 };
 
-export const deleteVoluntariado = (req, res) => {
-  const { id } = req.params;
-  const ok = borrarVoluntariado(id);
-  if (!ok) {
-    return res.status(404).json({ error: "Voluntariado no encontrado" });
+export const postVoluntariado = async (req, res) => {
+  try {
+    const voluntariado = req.body;
+    const creado = await altaVoluntariado(voluntariado);
+    res.status(201).json(creado);
+  } catch (err) {
+    console.error("Error al crear voluntariado:", err);
+    res.status(500).json({ error: "Error al crear voluntariado" });
   }
-  res.json({ eliminado: true });
+};
+
+export const putVoluntariado = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const voluntariadoActualizado = req.body;
+
+    const actualizado = await modificarVoluntariado(id, voluntariadoActualizado);
+
+    if (!actualizado) {
+      return res.status(404).json({ error: "Voluntariado no encontrado" });
+    }
+
+    res.json(actualizado);
+  } catch (err) {
+    console.error("Error al modificar voluntariado:", err);
+    res.status(500).json({ error: "Error al modificar voluntariado" });
+  }
+};
+
+export const deleteVoluntariado = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ok = await borrarVoluntariado(id);
+
+    if (!ok) {
+      return res.status(404).json({ error: "Voluntariado no encontrado" });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error al borrar voluntariado:", err);
+    res.status(500).json({ error: "Error al borrar voluntariado" });
+  }
 };

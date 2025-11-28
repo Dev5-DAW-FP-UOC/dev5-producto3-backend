@@ -1,136 +1,138 @@
 // core/almacenaje.js
-import { randomUUID } from "node:crypto";
-import { datos } from "../database/datos.js";
+import { getDb } from "../database/mongoClient.js";
+import { ObjectId } from "mongodb";
 
-// ======== ESTADO EN MEMORIA A PARTIR DE datos.js ======== //
+// ====== USUARIOS ======
 
-const usuarios = Array.isArray(datos.usuarios) ? [...datos.usuarios] : [];
+export async function listarUsuarios() {
+  const db = getDb();
+  const col = db.collection("usuarios");
+  return await col.find({}).toArray();
+}
 
-let voluntariados = Array.isArray(datos.voluntariados)
-  ? [...datos.voluntariados]
-  : [];
+export async function altaUsuario(usuario) {
+  const db = getDb();
+  const col = db.collection("usuarios");
 
-let seleccionados = [];
-
-// Calculamos el siguiente id numérico para voluntariados
-let nextVolId =
-  voluntariados.length > 0
-    ? Math.max(...voluntariados.map((v) => Number(v.id) || 0)) + 1
-    : 1;
-
-// ======== USUARIOS ======== //
-
-export function altaUsuario(usuario) {
-  const existe = usuarios.some((u) => u.email === usuario.email);
+  // comprobar email único
+  const existe = await col.findOne({ email: usuario.email });
   if (existe) return null;
 
-  const nuevo = { ...usuario }; // usamos email como clave única
-  usuarios.push(nuevo);
-  return nuevo;
+  await col.insertOne(usuario);
+  return usuario;
 }
 
-export function listarUsuarios() {
-  return usuarios;
-}
+export async function modificarUsuario(emailOriginal, usuarioActualizado) {
+  const db = getDb();
+  const col = db.collection("usuarios");
 
-export function modificarUsuario(emailOriginal, usuarioActualizado) {
-  const idx = usuarios.findIndex((u) => u.email === emailOriginal);
-  if (idx === -1) return null;
-
-  // si cambia el email, comprobar que no exista en otro usuario
-  if (usuarioActualizado.email !== emailOriginal) {
-    const existeNuevo = usuarios.some(
-      (u) => u.email === usuarioActualizado.email && u.email !== emailOriginal
-    );
-    if (existeNuevo) return null;
+  // si cambia el email, comprobar que no exista ya
+  if (usuarioActualizado.email && usuarioActualizado.email !== emailOriginal) {
+    const emailExiste = await col.findOne({ email: usuarioActualizado.email });
+    if (emailExiste) return null;
   }
 
-  const actualizado = {
-    ...usuarios[idx],
-    ...usuarioActualizado,
-  };
-
-  usuarios[idx] = actualizado;
-  return actualizado;
-}
-
-export function borrarUsuario(email) {
-  const idx = usuarios.findIndex((u) => u.email === email);
-  if (idx === -1) return false;
-  usuarios.splice(idx, 1);
-  return true;
-}
-
-export function loguearUsuario(email, password) {
-  const usuario = usuarios.find(
-    (u) => u.email === email && u.password === password
+  const result = await col.findOneAndUpdate(
+    { email: emailOriginal },
+    { $set: usuarioActualizado },
+    { returnDocument: "after" }
   );
+
+  return result.value; // null si no existe
+}
+
+export async function borrarUsuario(email) {
+  const db = getDb();
+  const col = db.collection("usuarios");
+  const result = await col.deleteOne({ email });
+  return result.deletedCount === 1;
+}
+
+export async function loguearUsuario(email, password) {
+  const db = getDb();
+  const col = db.collection("usuarios");
+  const usuario = await col.findOne({ email, password });
   return usuario || null;
 }
 
-// ======== VOLUNTARIADOS ======== //
+// ====== VOLUNTARIADOS ======
 
-export function altaVoluntariado(voluntariado) {
-  const nuevo = {
-    ...voluntariado,
-    id: nextVolId++,
-  };
-  voluntariados.push(nuevo);
+export async function listarVoluntariados() {
+  const db = getDb();
+  const col = db.collection("voluntariados");
+  return await col.find({}).toArray();
+}
+
+export async function altaVoluntariado(vol) {
+  const db = getDb();
+  const col = db.collection("voluntariados");
+
+  // Calculamos siguiente id numérico para mantener compatibilidad
+  const last = await col.find({}).sort({ id: -1 }).limit(1).toArray();
+  const nextId = last[0]?.id ? last[0].id + 1 : 2001;
+
+  const nuevo = { ...vol, id: nextId };
+  await col.insertOne(nuevo);
+
   return nuevo;
 }
 
-export function listarVoluntariados() {
-  return voluntariados;
-}
+export async function modificarVoluntariado(id, volActualizado) {
+  const db = getDb();
+  const col = db.collection("voluntariados");
 
-export function modificarVoluntariado(id, voluntariadoActualizado) {
-  const numId = Number(id);
-  const idx = voluntariados.findIndex((v) => Number(v.id) === numId);
-  if (idx === -1) return null;
+  const numericId = Number(id);
 
-  const actualizado = {
-    ...voluntariados[idx],
-    ...voluntariadoActualizado,
-    id: voluntariados[idx].id, // mantenemos el id original
-  };
+  // Aseguramos que el id se mantiene
+  const datos = { ...volActualizado, id: numericId };
 
-  voluntariados[idx] = actualizado;
-  return actualizado;
-}
-
-export function borrarVoluntariado(id) {
-  const numId = Number(id);
-  const idx = voluntariados.findIndex((v) => Number(v.id) === numId);
-  if (idx === -1) return false;
-  voluntariados.splice(idx, 1);
-  return true;
-}
-// Esta función la podremos usar mas adelante pero habría que agregar al objeto de datos.js el campo email
-// export function voluntariadosPorUsuario(email) {
-//   return voluntariados.filter((v) => v.email === email);
-// }
-
-// ======== SELECCIONADOS ======== //
-
-export function guardarSeleccionados(voluntariado) {
-  const nuevo = {
-    ...voluntariado,
-    // le damos un id único interno para poder borrarlo
-    seleccionadoId: randomUUID(),
-  };
-  seleccionados.push(nuevo);
-  return nuevo;
-}
-
-export function listarSeleccionados() {
-  return seleccionados;
-}
-
-export function borrarSeleccionados(seleccionadoId) {
-  const idx = seleccionados.findIndex(
-    (v) => v.seleccionadoId === seleccionadoId
+  const result = await col.findOneAndUpdate(
+    { id: numericId },
+    { $set: datos },
+    { returnDocument: "after" }
   );
-  if (idx === -1) return false;
-  seleccionados.splice(idx, 1);
-  return true;
+
+  return result.value; // null si no existe
+}
+
+export async function borrarVoluntariado(id) {
+  const db = getDb();
+  const col = db.collection("voluntariados");
+  const numericId = Number(id);
+  const result = await col.deleteOne({ id: numericId });
+  return result.deletedCount === 1;
+}
+
+// ====== SELECCIONADOS ======
+
+export async function listarSeleccionados() {
+  const db = getDb();
+  const col = db.collection("seleccionados");
+  const docs = await col.find({}).toArray();
+
+  // exponemos seleccionadoId = _id como string
+  return docs.map((doc) => ({
+    ...doc,
+    seleccionadoId: doc._id.toString(),
+  }));
+}
+
+export async function guardarSeleccionados(vol) {
+  const db = getDb();
+  const col = db.collection("seleccionados");
+
+  const result = await col.insertOne(vol);
+
+  return {
+    ...vol,
+    seleccionadoId: result.insertedId.toString(),
+  };
+}
+
+export async function borrarSeleccionados(id) {
+  const db = getDb();
+  const col = db.collection("seleccionados");
+
+  const result = await col.deleteOne({ _id: new ObjectId(id) });
+  return result.deletedCount === 1;
 }
